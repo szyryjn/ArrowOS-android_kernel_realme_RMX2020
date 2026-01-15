@@ -1,27 +1,38 @@
 #!/bin/bash
+SECONDS=0
 
 # Set kernel name
-BUILD_FOR="A13"
-DATE="$(TZ=Asia/India date +%Y%m%d%H%M%S)"
-KERNEL_NAME="SukiSu${BUILD_FOR}-${DATE}.zip"
+BUILD_TYPE="KSu"
+DATE="$(TZ=Asia/Jakarta date +%Y%m%d%H%M%S)"
+KERNEL_NAME="Rk${BUILD_TYPE}-${DATE}.zip"
 
-function compile() 
-{
-rm -rf AnyKernel
-source ~/.bashrc && source ~/.profile
-export LC_ALL=C && export USE_CCACHE=1
-ccache -M 100G
-export ARCH=arm64
-export KBUILD_BUILD_HOST=neolit
-export KBUILD_BUILD_USER="szyryjn"
-git clone --depth=1 https://gitlab.com/sarthakroy2002/android_prebuilts_clang_host_linux-x86_clang-r437112b clang
-git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 los-4.9-64
-git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 los-4.9-32
+# Clone SukiSU repo
+curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-main
 
-make O=out ARCH=arm64 RMX2020_defconfig
+function KERNEL_COMPILE() {
+        if [ "$1" == "install" ]; then
+		# Download required package
+		sudo apt update -y && sudo apt upgrade -y && sudo apt install nano bc ccache bison ca-certificates curl flex gcc git libc6-dev libssl-dev openssl python-is-python3 ssh wget zip zstd sudo make clang gcc-arm-linux-gnueabi software-properties-common build-essential libarchive-tools gcc-aarch64-linux-gnu -y && sudo apt install build-essential -y && sudo apt install libssl-dev libffi-dev libncurses5-dev zlib1g zlib1g-dev libreadline-dev libbz2-dev libsqlite3-dev make gcc -y && sudo apt install pigz -y && sudo apt install python2 -y && sudo apt install python3 -y && sudo apt install cpio -y && sudo apt install lld -y && sudo apt install llvm -y && sudo apt-get install g++-aarch64-linux-gnu -y && sudo apt install libelf-dev -y && sudo apt install neofetch -y && neofetch
+	fi
 
-PATH="${PWD}/clang/bin:${PATH}:${PWD}/los-4.9-32/bin:${PATH}:${PWD}/los-4.9-64/bin:${PATH}" \
-make -j$(nproc --all) O=out \
+	# Set environment variables
+	export USE_CCACHE=1
+	export KBUILD_BUILD_HOST=#rmx
+	export KBUILD_BUILD_USER=anonim
+
+	# Download clang if not present
+	git clone --depth=1 https://gitlab.com/sarthakroy2002/android_prebuilts_clang_host_linux-x86_clang-r437112b clang
+        git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 los-4.9-64
+        git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 los-4.9-32
+
+	# Add clang bin directory to PATH
+	export PATH="${PWD}/clang/bin:${PATH}:${PWD}/los-4.9-32/bin:${PATH}:${PWD}/los-4.9-64/bin:${PATH}"
+
+	# Make the config
+	make O=out ARCH=arm64 RMX2020_defconfig
+
+	# Build the kernel with clang and log output
+	make -j$(nproc --all) O=out \
                       ARCH=arm64 \
                       CC="clang" \
                       CLANG_TRIPLE=aarch64-linux-gnu- \
@@ -30,67 +41,26 @@ make -j$(nproc --all) O=out \
                       CONFIG_NO_ERROR_ON_MISMATCH=y
 }
 
-function extract_image_gz_dtb()
-{
-    echo "[Image.gz-dtb extractor] Getting DTB offset from Image.gz-dtb..."
-    OFFSET=$(binwalk "Image.gz-dtb" | grep "Flattened device tree" | awk '{print $1}')
-    if [ -z "$OFFSET" ]; then
-      echo "[Image.gz-dtb extractor] Could not find DTB in Image.gz-dtb"
-      exit 1
-    fi
-    echo "[Image.gz-dtb extractor] Found DTB offset at $OFFSET"
+function KERNEL_RESULT() {
+	# Create anykernel
+	rm -rf anykernel
+	git clone https://github.com/muhammmadnantaa-hub/AnyKernel.git anykernel
 
-    echo "[Image.gz-dtb extractor] Extracting kernel (gzip part)..."
-    dd if="Image.gz-dtb" of="Image.gz" bs=1 count="$OFFSET" status=none
+	# Copying image
+	cp out/arch/arm64/boot/Image.gz-dtb anykernel
 
-    echo "[Image.gz-dtb extractor] Extracting DTB..."
-    dd if="Image.gz-dtb" of="dtb" bs=1 skip="$OFFSET" status=none
+	# Created zip kernel
+	cd anykernel && zip -r9 "${KERNEL_NAME}" *
 
-    echo "[Image.gz-dtb extractor] Decompressing kernel gzip to raw Image..."
-    gzip -cd "Image.gz" > "Image"
-
-    echo "[Image.gz-dtb extractor] Done"
-    rm -rf Image.gz Image.gz-dtb
+	# Upload kernel
+	RESPONSE=$(curl -s -F "file=@${KERNEL_NAME}" "https://store1.gofile.io/contents/uploadfile" \
+	|| curl -s -F "file=@${KERNEL_NAME}" "https://store2.gofile.io/contents/uploadfile")
+	DOWNLOAD_LINK=$(echo "$RESPONSE" | grep -oP '"downloadPage":"\K[^"]+')
+	echo -e "\nDownload link: $DOWNLOAD_LINK"
 }
 
-function install_kernel_patch()
-{
-    mkdir KernelPatchTools
-    cd KernelPatchTools
-    curl -L -O https://github.com/bmax121/KernelPatch/releases/download/0.11.3/kptools-linux
-    curl -L -O https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.12.0/kpimg
-    chmod +x ./kptools-linux
-    if [ -e "./kpimg-android" ]; then
-        mv ./kpimg-android ./kpimg
-    fi
-    cd ..
-}
+# Run functions
+KERNEL_COMPILE "$1"
+KERNEL_RESULT
+echo -e "Completed in $((SECONDS / 60)) minute(s) and $((SECONDS % 60)) second(s) !\n"
 
-function kernel_patching()
-{
-    ../KernelPatchTools/kptools-linux -p -s "RainyPatch@111" -i ./Image -k ../KernelPatchTools/kpimg -o ./oImage
-    rm -rf ./Image
-    mv ./oImage ./Image
-}
-
-function zipping()
-{
-    rm -rf AnyKernel
-    git clone --depth=1 -b RMX2020-SUKI https://github.com/szyryjn/AnyKernel3.git AnyKernel
-    cp out/arch/arm64/boot/Image.gz-dtb AnyKernel
-    if [ ! -d "KernelPatchTools" ]; then
-        echo "KernelPatch tools does not exist. Installing"
-        install_kernel_patch
-        echo "KernelPatch tools installed!"
-    fi
-    cd AnyKernel
-    extract_image_gz_dtb
-    kernel_patching
-    gzip -c Image > Image.gz
-    cat Image.gz dtb > Image.gz-dtb
-    rm -rf Image Image.gz dtb
-    zip -r9 ("$KERNEL_NAME") *
-}
-
-compile
-zipping
